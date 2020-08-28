@@ -1,0 +1,526 @@
+<!-- 
+    Adapted from Mike Bostock at bl.ocks.org
+    https://bl.ocks.org/mbostock/4060606
+ -->
+
+<!DOCTYPE html>
+<head>
+    <meta charset="utf-8">
+    <meta name="description" content="">
+    <title>corona map</title>
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/d3-tip.css">
+    <link rel="stylesheet" href="css/jquery-ui.css">
+    <link rel="stylesheet" href="css/jquery-ui.structure.css">
+    <link rel="stylesheet" href="css/jquery-ui.theme.css">
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/css/bootstrap.min.css" integrity="sha384-9aIt2nRpC12Uk9gS9baDl411NQApFmC26EwAOH8WgZl5MYYxFfc+NcPb1dKGj7Sk" crossorigin="anonymous">
+</head>
+<body>
+<!-- Confirmed Cases 11,190
+Recovered (Released from Quarantine)
+Deceased -->
+       <nav class="navbar navbar-expand-lg navbar-light bg-light">
+  <p class="navbar-brand" href="#">지역별 COVID-19 통계 (2020/01/20~2020/04/30)</p>
+  <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNavDropdown" aria-controls="navbarNavDropdown" aria-expanded="false" aria-label="Toggle navigation">
+    <span class="navbar-toggler-icon"></span>
+  </button>
+  
+</nav>   
+        
+    <div class="container">
+        <div class="row">
+            <div id="left-charts" class="col-md-4">
+                <svg width="400" height="500"></svg>
+            </div>
+            <div class="col-md-1"></div>
+            <div class="col-md-5">
+                <div class="row">
+                    <div id="date" class="col-md-12"></div>
+                </div>
+                <div class="row">
+                    <div id="middle-charts" class="col-md-6"></div>
+                    <div id="right-charts" class="col-md-6"></div>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <span id="textaddition"><b>지역별 확진자 비율</b></span><br>
+                        <span><날짜별 코로나 통계></span><br>
+                        <span>Test Numbers: <span id="test" style='color:red;text-transform:capitalize'>0</span></span><br>
+                        <span>Negative Cases: <span id="negative" style='color:red;text-transform:capitalize'>0</span></span><br>
+                        <span>Confirmed Cases: <span id="confirmed" style='color:red;text-transform:capitalize'>0</span></span><br>
+                        <span>Released Cases: <span id="recovered" style='color:red;text-transform:capitalize'>0</span></span><br>
+                        <span>Deceases Cases: <span id="deceased" style='color:red;text-transform:capitalize'>0</span></span><br>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="row">
+                            <span id="textaddition"><b>감염경로별 확진자 비율</b></span><br>
+                            <div id="legend" class="col-md-12"></div>
+                        </div>
+                    </div>
+                </div>
+                
+            </div>
+            
+            
+        </div>
+    </div>
+    
+    
+
+<script src="https://d3js.org/d3.v5.min.js"></script>
+<script src="https://d3js.org/d3-scale-chromatic.v1.min.js"></script>
+<script src="//d3js.org/topojson.v2.min.js"></script>
+<script src="js/jquery.min.js"></script>
+<script src="js/bootstrap.min.js"></script>
+<script src="js/jquery-ui.min.js"></script>
+<script src="js/d3-tip.js"></script>
+<script>
+
+
+
+
+//key map
+var formatTime = d3.timeFormat("%Y-%m-%d");
+var timeScale = d3.scaleTime()
+    .domain([new Date(2020, 0, 20), new Date(2020, 3, 30)])
+    .range([0, 102]);
+
+
+
+var provinceMap =
+    [
+        "Seoul",
+        "Busan",
+        "Daegu",
+        "Gwangju",
+        "Incheon",
+        "Daejeon",
+        "Ulsan",
+        "Sejong",
+        "Gyeonggi-do",
+        "Gangwon-do",
+        "Chungcheongbuk-do",
+        "Chungcheongnam-do",
+        "Jeollabuk-do",
+        "Jeollanam-do",
+        "Gyeongsangbuk-do",
+        "Gyeongsangnam-do",
+        "Jeju-do"
+    ]
+
+var provinceKeyMap = new Map();
+for(var i = 0; i < 17; i++){
+    provinceKeyMap.set(provinceMap[i], i);
+}
+
+
+//common
+    var svg = d3.select("#left-charts").select("svg");
+    //var mapcolor = d3.scaleOrdinal(d3.schemePastel1)
+    var mapcolor = d3.scaleOrdinal()
+    .range(["#C8707E", "#E28FAD", "#EFB4C1", "#E48E58", "#EDAA7D",
+            "#F0C7AB", "#5AA08D", "#4C92B1", "#A8C879", "#678FAE",
+            "#AC99C1", "#96B1D0", "#C08863", "#ADA759", "#C8C2BD"]);
+    var piecolor = d3.scaleOrdinal()
+    .range(["#F46A4E", "#F4874B", "#F3B05A", "#0ABDA0", "#52733B",
+            "#D4DCA9", "#54678F", "#9199BE", "#5C4A72", "#80ADD7",
+            "#2E303E", "#6C6B74", "#212624", "#A3586D", "#EBF2EA",
+            "#BF9D7A", "#818A6F", "#715E4E"]);
+    var width = +svg.attr("width"),
+        height = +svg.attr("height"),
+        radius = Math.min(width, height) / 2;
+
+    var tip = d3.tip().attr('class', 'd3-tip')
+        .html(function(d) {
+            var text = "Country: <span style='color:red'>" + "떳다" + "</span><br>";
+            
+            return text;
+        });
+    svg.call(tip);
+
+    //data reading
+    var promises = [
+      d3.csv("data/Time.csv", function(d){
+        d["confirmed"] = +d["confirmed"]
+        d["deceased"] = +d["deceased"]
+        d["date"] = new Date(d["date"])
+        d["released"] = +d["released"]
+        d["negative"] = +d["negative"]
+        d["test"] = +d["test"]
+        return d;
+      }),
+      d3.csv("data/Case.csv", function(d){
+        d["confirmed"] = +d["confirmed"]
+        d["case_id"] = +d["case_id"]
+        return d
+      }),
+      d3.csv("data/TimeProvince.csv", function(d){
+        d["confirmed"] = +d["confirmed"]
+        d["deceased"] = +d["deceased"]
+        d["date"] = new Date(d["date"])
+        return d;
+      }),
+      d3.json("data/topoKorea.json")
+    ]
+
+    Promise.all(promises).then(function(data){
+        console.log("data all")
+        console.log(data)
+        
+        timeData = data[0];
+        var caseData = data[1];
+        var provinceData = data[2];
+        mapData = data[3];
+        
+        for (var i = 0; i < 17; i++){
+            mapData.objects.skorea_provinces_2018_geo.geometries[i].properties.name_eng = provinceMap[i]
+        }
+
+
+         provinceNestedData = d3.nest()
+            .key(function(d) { return d["date"]; })
+            .entries(provinceData);
+        console.log("provinceNestedData")
+        console.log(provinceNestedData)
+        
+        caseNestedData = d3.nest()
+            .key(function(d) { return d["province"]; })
+            .entries(caseData);
+        console.log("caseNestedData")
+        console.log(caseNestedData)
+        
+        console.log("mapData")
+        console.log(mapData)
+        ready(mapData)
+    }).catch(function(error){
+        console.log(error);
+    });
+
+//map
+    var projection = d3.geoMercator()
+        .center([128, 36])
+        .scale(5000)
+        .translate([width/2, height/2 + 50]);
+
+    var path = d3.geoPath()
+        .projection(projection);
+
+    var x = d3.scaleLinear()
+        .domain([1, 10])
+        .rangeRound([600, 860]);
+
+    //static variable
+    var mapData;
+
+//mapdrawing
+    function ready(data) {
+        var geoKorea = topojson.feature(data, data.objects.skorea_provinces_2018_geo)
+        
+        svg.append("g")
+            .attr("class", "counties")
+            .selectAll("path")
+                .data(geoKorea.features)
+            .enter().append("path")
+                .attr("fill", function(d) { return mapcolor(d.properties.name_eng); })
+                .attr("d", path)
+                .on("click", mapmouseclick)
+                .on("mouseout", step())
+                .append("title")
+                .text(function(d, i) {
+                    return d.properties.name/* + (data1[i].endAngle - data1[i].startAngle) / 360 + "%"*/});
+                
+        svg.selectAll("text")
+            .data(geoKorea.features)
+            .enter()
+            .append("svg:text")
+            .text(function(d){
+                return d.properties.name;
+            })
+            .attr("x", function(d){
+                return path.centroid(d)[0];
+            })
+            .attr("y", function(d){
+                
+                var result;
+                switch (d.properties.name) {
+                    case "경기도":
+                    result =  path.centroid(d)[1] + 20;
+                    break;
+
+                    case "충청남도":
+                    result =  path.centroid(d)[1] + 15;
+                    break;
+                    
+                    default:
+                    result =  path.centroid(d)[1];
+                }
+                return  result;
+            })
+            .attr("text-anchor","middle")
+            .attr('font-size','6pt');
+
+
+
+        svg.append("path")
+            .datum(topojson.mesh(data, data.objects.skorea_provinces_2018_geo, function(a, b) { return a !== b; }))
+            .attr("class", "states")
+            .attr("d", path);
+    }
+    
+
+    
+
+//pie drawing
+
+//pie
+    var pie = d3.pie()
+        .value(function(d) { return d["confirmed"]; })
+        .sort(null);
+
+    var arc = d3.arc()
+        .innerRadius(radius - 150)
+        .outerRadius(radius - 110);
+
+    //static variable
+    var interval;
+    var keySelector = "province";
+    var caseNestedData;
+    var provinceNestedData;
+    var timer = 0;
+    var data1;
+    var timeData;
+    //double layouts
+    var piewidth = 180
+    //province
+    var piesvg = d3.select("#middle-charts").append("svg")
+        .attr("width", piewidth)
+        .attr("height", 250)
+        .attr("class", "floating")
+        .append("g")
+        .attr("transform", "translate(" + piewidth / 2 + "," + 125 + ")");  
+     
+    var piesvg2 = d3.select("#right-charts").append("svg")
+        .attr("width", piewidth)
+        .attr("height", 250)
+        .append("g")
+        .attr("transform", "translate(" + piewidth / 2 + "," + 125 + ")");   
+       
+    var legendsvg = d3.select("#legend").append("svg")
+        .attr("width", 250)
+        .attr("height", 250);
+
+    function change(data) {
+        
+        var piepath = piesvg.selectAll("path");
+        
+        var data0 = piepath.data();
+            data1 = pie(data.values);
+            
+            
+        // JOIN elements with new data.
+        piepath = piepath.data(data1, key);
+
+        // EXIT old elements from the screen.
+        piepath.exit()
+            .datum(function(d, i) { return findNeighborArc(i, data1, data0, key) || d; })
+            .transition()
+            .duration(750)
+            .attrTween("d", arcTween)
+            .remove();
+        
+        // UPDATE elements still on the screen.
+        piepath.transition()
+            .duration(750)
+            .attrTween("d", arcTween);
+
+        // ENTER new elements in the array.
+        piepath.enter()
+            .append("path")
+            .each(function(d, i) { 
+                this._current = findNeighborArc(i, data0, data1, key) || d;
+                 }) 
+            .attr("fill", function(d) {  return mapcolor(d.data["province"]) })
+            .transition()
+            .duration(750)
+            .attrTween("d", arcTween);
+            //$("#date").text(formatTime(timeScale.invert(timer)));
+            $("#date").html("<b>"+ formatTime(timeScale.invert(timer)) + "</b>");
+            $("#confirmed").text(timeData[timer].confirmed);
+            $("#deceased").text(timeData[timer].deceased);
+            $("#negative").text(timeData[timer].negative);
+            $("#released").text(timeData[timer].released);
+            $("#test").text(timeData[timer].test);
+    }
+    /*
+  <span>Test Numbers: <span id="test" style='color:red;text-transform:capitalize'>country</span></span><br>
+                        <span>Negative Cases: <span id="negative" style='color:red;text-transform:capitalize'>country</span></span><br>
+                        <span>Confirmed Cases: <span id="confirmed" style='color:red;text-transform:capitalize'>country</span></span><br>
+                        <span>Recovered Cases: <span id="recovered" style='color:red;text-transform:capitalize'>country</span></span><br>
+                        <span>Deceases Cases: <span id="deceased" style='color:red;text-transform:capitalize'>country</span></span><br>*/
+
+    function change2(data) {
+        console.log("change 2")
+        console.log(data)
+        
+        var counter = 0;
+        var legendG = legendsvg.selectAll(".legend") // note appending it to mySvg and not svg to make positioning easier
+          .data(data.values, function(d){
+            return d["infection_case"];
+          });
+        console.log(legendG)
+        legendG.exit().remove();
+        
+
+        var legendGO = legendG.enter().append("g")
+          .attr("transform", function(d,i){
+            
+            return "translate(" + 0 + "," + (i * 15 + 20) + ")"; // place each legend on the right and bump each one down 15 pixels
+          })
+          .attr("class", "legend");
+
+          legendG.attr("transform", function(d,i){
+            
+            return "translate(" + 0 + "," + (i * 15 + 20) + ")"; // place each legend on the right and bump each one down 15 pixels
+          })
+
+        legendGO.append("rect") // make a matching color rect
+          .attr("width", 10)
+          .attr("height", 10)
+          .attr("fill", function(d, i) {
+            return piecolor(d["infection_case"]);
+          });
+
+        legendGO.append("text") // add the text
+          .text(function(d){
+            return d["infection_case"];
+          })
+          .style("font-size", 12)
+          .attr("y", 10)
+          .attr("x", 11);
+
+
+        
+        
+        var piepath = piesvg2.selectAll("path");
+        
+        var data0 = piepath.data(),
+            data1 = pie(data.values);
+            
+            
+        // JOIN elements with new data.
+        piepath = piepath.data(data1, key2);
+
+        // EXIT old elements from the screen.
+        piepath.exit()
+            .datum(function(d, i) { return findNeighborArc(i, data1, data0, key2) || d; })
+            .transition()
+            .duration(750)
+            .attrTween("d", arcTween)
+            .remove();
+        
+        // UPDATE elements still on the screen.
+        piepath.transition()
+            .duration(750)
+            .attrTween("d", arcTween);
+
+        // ENTER new elements in the array.
+        piepath.enter()
+            .append("path")
+            .each(function(d, i) { 
+                this._current = findNeighborArc(i, data0, data1, key2) || d;
+                 }) 
+            .attr("fill", function(d) {  return piecolor(d.data["infection_case"]) })
+            .transition()
+            .duration(750)
+            .attrTween("d", arcTween);
+    }
+
+
+
+    function key(d) {
+        return d.data["province"];
+    }
+
+    function key2(d) {
+        
+        
+        
+        return d.data["infection_case"];
+    }
+
+
+
+
+
+    //인접 각 찾기
+    function findNeighborArc(i, data0, data1, key) {
+            var d;
+            return (d = findPreceding(i, data0, data1, key)) ? {startAngle: d.endAngle, endAngle: d.endAngle}
+                : (d = findFollowing(i, data0, data1, key)) ? {startAngle: d.startAngle, endAngle: d.startAngle}
+                : null;
+        }
+        
+    // Find the element in data0 that joins the highest preceding element in data1.
+    function findPreceding(i, data0, data1, key) {
+        var m = data0.length;
+        while (--i >= 0) {
+            var k = key(data1[i]);
+            for (var j = 0; j < m; ++j) {
+                if (key(data0[j]) === k) return data0[j];
+            }
+        }
+    }
+
+    // Find the element in data0 that joins the lowest following element in data1.
+    function findFollowing(i, data0, data1, key) {
+        var n = data1.length, m = data0.length;
+        while (++i < n) {
+            var k = key(data1[i]);
+            for (var j = 0; j < m; ++j) {
+                if (key(data0[j]) === k) return data0[j];
+            }
+        }
+    }
+
+    function arcTween(d) {
+        var i = d3.interpolate(this._current, d);
+        this._current = i(1)
+        return function(t) { return arc(i(t)); };
+    }
+
+    //클릭 이벤트
+    /*function mapmouseclick(d){
+            if(d.data["date"]){
+                keySelector = "city"; //여기서 city 는 province 나 광역시 안의 도시 를 말하는 거다. 
+                clearInterval(interval);
+                
+            }
+            console.log(d)
+            console.log(d3.mouse(this))
+        }*/
+
+    function mapmouseclick(d, i){
+
+        //console.log(provinceKeyMap.get(d.properties.name_eng))
+        console.log(d)
+        console.log(d3.mouse(this))
+        change2(caseNestedData[provinceKeyMap.get(d.properties.name_eng)]);
+    }
+
+
+    //province pie
+    interval = setInterval(step, 800); 
+
+    function step(){
+        timer = timer % 102;
+        change(provinceNestedData[timer++]);
+    }
+</script>
+<script src="https://code.jquery.com/jquery-3.5.1.slim.min.js" integrity="sha384-DfXdz2htPH0lsSSs5nCTpuj/zy4C+OGpamoFVy38MVBnE+IbbVYUew+OrCXaRkfj" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.0/dist/umd/popper.min.js" integrity="sha384-Q6E9RHvbIyZFJoft+2mJbHaEWldlvI9IOYy5n3zV9zzTtmI3UksdQRVvoxMfooAo" crossorigin="anonymous"></script>
+<script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/js/bootstrap.min.js" integrity="sha384-OgVRvuATP1z7JjHLkuOU7Xw704+h835Lr+6QL9UvYjZE3Ipu6Tp75j7Bh/kR0JKI" crossorigin="anonymous"></script>
+
+</body>
